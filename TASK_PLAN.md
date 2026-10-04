@@ -22,6 +22,7 @@
 | `GET https://fakestoreapi.com/products/{id}` | تفاصيل منتج | تُعامل كـ **محمية** |
 
 **⚠️ نقطة مهمة جداً:** سيرفر FakeStore **لا يتحقق فعلياً** من الـ token في طلبات المنتجات، أي أنها ستعمل حتى بدونه. **لكن المطلوب أن تتصرف كأنه يتحقق:**
+
 - ترفق `Authorization: Bearer <token>` بكل طلب منتجات.
 - تكتشف انتهاء الـ token **بنفسك داخل التطبيق** (بعد 60 ثانية)، لأن السيرفر لن يخبرك أبداً بالرد `401`.
 
@@ -48,16 +49,19 @@ Authorization: Bearer eyJhbGciOi...
 فلا تكتب الـ header يدوياً في كل استدعاء.
 
 **ب) محاكاة انتهاء الصلاحية (Token Expiry Simulation)**
+
 - صلاحية الـ token = **60 ثانية**.
 - عند حفظ الـ token تحفظ معه **وقت الحفظ** `tokenSavedAt`.
 - قبل أي طلب: `isExpired = now - tokenSavedAt >= 60_000ms`.
 
 **ج) سلوك الـ token المنتهي (Expired Token Behavior)**
+
 - **ممنوع** إرسال طلب بـ token منتهٍ.
 - إذا كان منتهياً، **جدّده أولاً تلقائياً** ثم أرسل الطلب بالـ token الجديد، دون أن يشعر المستخدم بشيء.
 
 **د) التزامن (Concurrency Handling)، أصعب جزء**
 السيناريو: الـ token انتهى، وفي اللحظة نفسها انطلقت 3 طلبات (مثلاً القائمة وتفاصيل منتجين).
+
 - ❌ **الخطأ:** كل طلب يكتشف الانتهاء ويطلق تجديداً خاصاً به، فتُرسل 3 طلبات login.
 - ✅ **الصحيح:** **طلب تجديد واحد فقط**، والطلبان الآخران **ينتظران** ثم **يكملان** بالـ token الجديد.
 
@@ -88,25 +92,37 @@ Authorization: Bearer eyJhbGciOi...
 ## 4. المعمارية المقترحة (Architecture)
 
 ```
-┌──────────────────────── UI Layer (View) ────────────────────────┐
-│ LoginActivity/Fragment   ProductsFragment      ProductDetailFragment │
-│      │                       │ RecyclerView + Adapter        │      │
-│      ▼                       ▼                               ▼      │
-│ LoginViewModel          ProductsViewModel       ProductDetailViewModel│
-└──────┬───────────────────────┬───────────────────────────────┬─────┘
-       ▼                       ▼                               ▼
-┌──────────────────────── Data Layer (Model) ─────────────────────┐
-│ AuthRepository                    ProductRepository                │
-│      │                                  │                          │
-│      ▼                                  ▼                          │
-│ AuthManager ◄──────────── AuthInterceptor (داخل OkHttp المحمي)     │
-│   │  ├─ TokenStorage (مشفّر: token + tokenSavedAt + credentials)  │
-│   │  ├─ Clock (لمعرفة الوقت؛ قابل للاستبدال في الاختبارات)         │
-│   │  └─ Mutex/Lock (ضمان تجديد واحد فقط)                          │
-│   ▼                                                                │
-│ AuthApi (Retrofit بـ OkHttp **بدون** AuthInterceptor)  ProductApi (Retrofit بـ OkHttp **مع** AuthInterceptor)│
-└────────────────────────────────────────────────────────────────────┘
++----------------------------- UI Layer (View) ------------------------------+
+|  LoginFragment          ProductsFragment            ProductDetailFragment  |
+|        |                 (RecyclerView + Adapter)            |             |
+|        v                        v                            v             |
+|  LoginViewModel          ProductsViewModel          ProductDetailViewModel |
++--------+------------------------+----------------------------+-------------+
+         v                        v                            v
++---------------------------- Data Layer (Model) ----------------------------+
+|  AuthRepository                         ProductRepository                  |
+|        |                                        |                          |
+|        v                                        v                          |
+|  AuthManager  <----- getValidToken() -----  ProductApi                     |
+|   |- TokenStorage (encrypted)                   |  (okHttpWithAuth)        |
+|   |- Clock                                      |                          |
+|   |- Lock (one refresh only)                    +--> AuthInterceptor       |
+|   v                                                                        |
+|  AuthApi  (okHttpPlain -- NO AuthInterceptor)                              |
++----------------------------------------------------------------------------+
 ```
+
+**قراءة المخطط:**
+
+- **الطبقة العليا (View):** كل شاشة لها ViewModel، والشاشة تتعامل معه فقط.
+- **الطبقة السفلى (Model):** الـ ViewModels تطلب البيانات من الـ Repositories.
+- **`AuthManager`** هو "عقل" الـ token، ويحتوي على:
+  - `TokenStorage`: تخزين **مشفّر** للـ token و`tokenSavedAt` وبيانات الدخول.
+  - `Clock`: مصدر الوقت، ويمكن استبداله في الاختبارات.
+  - **Lock:** قفل يضمن تجديداً واحداً فقط.
+- **`ProductApi`** يمر عبر `AuthInterceptor`، الذي يسأل `AuthManager` عن token صالح قبل كل طلب.
+- **`AuthApi`** (login) يستخدم عميل OkHttp **بدون** `AuthInterceptor`.
+
 
 ### لماذا نحتاج **نسختين** من OkHttp/Retrofit؟
 - **ProductApi:** يمر عبر `AuthInterceptor` ليحصل على الـ token.
@@ -124,7 +140,7 @@ com.example.authapp/
 │   ├── login/         LoginFragment, LoginViewModel, LoginUiState
 │   ├── products/      ProductsFragment, ProductsViewModel, ProductAdapter
 │   ├── detail/        ProductDetailFragment, ProductDetailViewModel
-│   └── MainActivity   (تستمع لحدث force logout)
+│   └── MainActivity   (listens for ForceLogout)
 └── util/              UiState, Result
 ```
 
@@ -133,76 +149,83 @@ com.example.authapp/
 ## 5. سير الكود خطوة بخطوة (Code Flow)
 
 ### 5.1 تسجيل الدخول
-```
-المستخدم يكتب البيانات ويضغط Login
-  → LoginViewModel.login(u, p)          state = Loading (تعطيل الزر + ProgressBar)
-  → AuthRepository → AuthManager.login(u, p)
-  → AuthApi.login()   (OkHttp بلا AuthInterceptor)
-  → نجاح: TokenStorage.save(token, tokenSavedAt = now, credentials)
-          state = Success → انتقال إلى ProductsFragment (ومسح Login من الـ back stack)
-  → فشل: state = Error("Invalid username or password" / "No internet")
-```
+| # | الخطوة | الكود المعني |
+|---|---|---|
+| 1 | المستخدم يكتب البيانات ويضغط Login | `LoginFragment` |
+| 2 | الحالة تصبح Loading، فيظهر `ProgressBar` ويُعطَّل الزر | `LoginViewModel.login(u, p)` |
+| 3 | الطلب ينتقل لطبقة البيانات | `AuthRepository` ← `AuthManager.login(u, p)` |
+| 4 | إرسال الطلب للسيرفر عبر عميل **بلا** `AuthInterceptor` | `AuthApi.login()` |
+| 5 | **عند النجاح:** حفظ الـ token مع وقت الحفظ وبيانات الدخول، ثم الانتقال للمنتجات ومسح Login من الـ back stack | `TokenStorage.save(token, tokenSavedAt = now, credentials)` |
+| 6 | **عند الفشل:** رسالة خطأ واضحة | `state = Error("Invalid username or password")` |
+
 
 ### 5.2 طلب منتجات بـ token صالح
-```
-ProductsViewModel.load() → ProductRepository → ProductApi.getProducts()
-  → AuthInterceptor.intercept():
-       token = AuthManager.getValidToken()     ← صالح (عمره < 60s) فيعود فوراً
-       request + header "Authorization: Bearer <token>"
-  → السيرفر → List<Product> → state = Success → Adapter.submitList()
-```
+| # | الخطوة | الكود المعني |
+|---|---|---|
+| 1 | الـ ViewModel يطلب المنتجات | `ProductsViewModel.load()` ← `ProductRepository` ← `ProductApi.getProducts()` |
+| 2 | قبل الإرسال، الـ Interceptor يعترض الطلب | `AuthInterceptor.intercept()` |
+| 3 | يسأل عن token صالح، وبما أن عمره أقل من 60 ثانية يعود **فوراً** | `AuthManager.getValidToken()` |
+| 4 | يضيف الـ header ويرسل الطلب | `Authorization: Bearer <token>` |
+| 5 | الرد يتحول لقائمة، والحالة تصبح Success، والقائمة تُعرض | `List<Product>` ← `adapter.submitList()` |
+
 
 ### 5.3 طلب بعد انتهاء الـ token (بعد 60 ثانية)
-```
-AuthInterceptor → AuthManager.getValidToken()
-   └─ منتهٍ ← يدخل القفل (lock)
-        └─ يتحقق مرة ثانية داخل القفل (ربما جدّده طلب آخر قبله)
-        └─ ما زال منتهياً ← AuthApi.login(credentials المحفوظة)
-             ├─ نجح ← حفظ token جديد + tokenSavedAt جديد ← يكمل الطلب الأصلي ✅
-             └─ فشل ← clear() + إطلاق حدث ForceLogout ← الطلب يفشل دون إعادة محاولة ❌
-```
+| # | الخطوة |
+|---|---|
+| 1 | `AuthInterceptor` يستدعي `AuthManager.getValidToken()` |
+| 2 | الـ token **منتهٍ**، فيدخل القفل (lock) |
+| 3 | **يتحقق مرة ثانية داخل القفل**، فربما جدّده طلب آخر قبله |
+| 4 | إذا ما زال منتهياً، يستدعي `AuthApi.login(credentials)` بالبيانات المحفوظة |
+| 5 ✅ | **نجح:** يحفظ token جديداً و`tokenSavedAt` جديداً، ثم يُكمل الطلب الأصلي بالـ token الجديد |
+| 5 ❌ | **فشل:** `clear()` ثم إطلاق حدث `ForceLogout`، والطلب يفشل **دون** إعادة محاولة |
+
 
 ### 5.4 التزامن: 3 طلبات والـ token منتهٍ
-```
-الزمن ──────────────────────────────────────────────►
-طلب A: منتهٍ؟ نعم → يأخذ القفل 🔒 → login...........→ token جديد → يحرر القفل 🔓 → يُرسل ✅
-طلب B: منتهٍ؟ نعم → ينتظر القفل ⏳.....................→ يأخذه → يتحقق: صالح الآن! → لا login → يُرسل ✅
-طلب C: منتهٍ؟ نعم → ينتظر القفل ⏳.....................→ يأخذه → يتحقق: صالح الآن! → لا login → يُرسل ✅
-النتيجة: طلب login واحد فقط
-```
+الطلبات A وB وC تنطلق معاً والـ token منتهٍ:
+
+| اللحظة | طلب A | طلب B | طلب C |
+|---|---|---|---|
+| 1 | منتهٍ؟ نعم، **يأخذ القفل** 🔒 | منتهٍ؟ نعم، ينتظر القفل ⏳ | منتهٍ؟ نعم، ينتظر القفل ⏳ |
+| 2 | يرسل `login` ويحفظ token جديداً | ينتظر ⏳ | ينتظر ⏳ |
+| 3 | يحرر القفل 🔓 ويرسل طلبه ✅ | يأخذ القفل ويتحقق: **صالح الآن!** | ينتظر ⏳ |
+| 4 | — | لا login، يحرر القفل ويرسل ✅ | يأخذ القفل ويتحقق: **صالح الآن!** |
+| 5 | — | — | لا login، يرسل ✅ |
+
+**النتيجة:** طلب `login` **واحد فقط** لثلاثة طلبات.
+
 هذا النمط اسمه **Double-Checked Locking**: تتحقق قبل القفل، ثم **تتحقق مرة أخرى بعد أخذه**. التحقق الثاني هو ما يمنع B وC من إطلاق تجديد مكرر.
 
 **فكرة الكود (للفهم فقط):**
 ```kotlin
-// داخل AuthManager
-@Synchronized   // أو ReentrantLock: قفل واحد لكل الطلبات
+// AuthManager
+@Synchronized                    // one lock for all requests (or ReentrantLock)
 fun getValidToken(): String? {
     val current = storage.token
-    if (current != null && !isExpired()) return current   // التحقق الثاني داخل القفل
-    return refresh()                                       // طلب login واحد فقط
+    if (current != null && !isExpired()) return current   // second check, inside the lock
+    return refresh()                                       // only one login call
 }
 ```
 > لماذا قفل عادي (`synchronized`) وليس `Mutex` من coroutines؟ لأن `Interceptor.intercept()` في OkHttp **دالة متزامنة (blocking)** تعمل على threads خاصة بـ OkHttp، وليست `suspend`. القفل العادي هو الأنسب هنا. (البديل `runBlocking { mutex.withLock { } }` يعمل أيضاً، لكنه أقل وضوحاً.)
 
 ### 5.5 Force Logout
-```
-فشل التجديد → AuthManager.clear() + _events.emit(ForceLogout)   (SharedFlow)
-  → MainActivity تستمع للحدث → navigate(Login) مع popUpTo(بداية الـ graph, inclusive)
-  → رسالة "Session expired, please log in again"
-```
+1. التجديد يفشل، فيستدعي `AuthManager.clear()` ثم `_events.emit(ForceLogout)` عبر `SharedFlow`.
+2. `MainActivity` تستمع لهذه الأحداث، فتستقبل `ForceLogout`.
+3. تنتقل لشاشة Login مع `popUpTo(بداية الـ graph, inclusive = true)` لمسح كل الشاشات السابقة.
+4. تعرض رسالة: "Session expired, please log in again".
+
 
 ### 5.6 Logout اليدوي
-```
-زر Logout في الـ Toolbar → ProductsViewModel.logout() → AuthManager.clear()
-  → navigate(Login) ومسح الـ back stack
-```
+1. المستخدم يضغط زر **Logout** في الـ Toolbar.
+2. يُستدعى `ProductsViewModel.logout()`، ثم `AuthManager.clear()`.
+3. الانتقال لشاشة Login مع مسح الـ back stack.
+
 
 ### 5.7 فتح التطبيق
-```
-SplashScreen أو MainActivity: هل يوجد token محفوظ؟
-   نعم → شاشة المنتجات (حتى لو انتهى، سيُجدَّد تلقائياً عند أول طلب)
-   لا  → شاشة Login
-```
+عند فتح التطبيق، تفحص `MainActivity` (أو شاشة Splash): **هل يوجد token محفوظ؟**
+
+- **نعم:** تفتح شاشة المنتجات. حتى لو انتهى الـ token، سيُجدَّد تلقائياً عند أول طلب.
+- **لا:** تفتح شاشة Login.
+
 
 ### 5.8 منع الحلقات اللانهائية (Avoid infinite retry loops)
 | الخطر | الحل |
@@ -226,6 +249,7 @@ SplashScreen أو MainActivity: هل يوجد token محفوظ؟
 
 ### 6.2 مشكلة "التجديد يحتاج كلمة المرور"
 بما أن التجديد = login جديد، **نحتاج اسم المستخدم وكلمة المرور** عند كل تجديد:
+
 - **خيار أ:** حفظها **مشفّرة** مع الـ token. التجديد يعمل حتى بعد إغلاق التطبيق.
 - **خيار ب:** إبقاؤها **في الذاكرة فقط**. أكثر أماناً، لكن بعد إعادة فتح التطبيق وانتهاء الـ token يحدث force logout.
 
@@ -437,3 +461,142 @@ SplashScreen أو MainActivity: هل يوجد token محفوظ؟
 - [ ] MVVM + Retrofit + OkHttp
 - [ ] README يشرح المعمارية وقرارات التصميم (القسم 6)
 - [ ] commits واضحة على GitHub
+
+---
+
+## ملحق: العمليات المعقدة مشروحة بالتفصيل
+
+### أ) كيف يعمل الـ Interceptor؟ (سلسلة المعترضات)
+**تشبيه:** الطلب رسالة تمر على عدة **موظفين في ممر** قبل أن تخرج من المبنى، والرد يعود عبر نفس الموظفين بالترتيب العكسي.
+
+```
+ProductApi.getProducts()
+        |
+        v
+[ AuthInterceptor ]          adds  Authorization: Bearer <token>
+        |   chain.proceed(request)
+        v
+[ HttpLoggingInterceptor ]   logs the request in Logcat
+        |
+        v
+     Network  -->  Server
+        |
+        ^   the response travels back through the same chain (reverse order)
+```
+
+- كل Interceptor يستلم `chain`، ويعدّل الطلب إن أراد، ثم يستدعي `chain.proceed(newRequest)` ليمرره للتالي.
+- **الترتيب مهم:** نضع `AuthInterceptor` قبل `HttpLoggingInterceptor`، ليظهر الـ header في السجل.
+- `intercept()` تعمل على **thread خلفي** خاص بـ OkHttp، لذلك يُسمح فيها بالانتظار (blocking) دون تجميد الواجهة.
+
+### ب) لماذا قفل + تحقق مزدوج؟ (Double-Checked Locking)
+**تشبيه:** ثلاثة موظفين يجدون أن **مفتاح المكتب منتهي الصلاحية**. يوجد **شبّاك واحد** لاستلام مفتاح جديد (القفل):
+
+1. الأول يدخل الشبّاك ويستلم مفتاحاً جديداً ويعلّقه على اللوحة.
+2. الثاني كان ينتظر في الطابور. حين يصل الشبّاك **ينظر إلى اللوحة أولاً**، فيجد مفتاحاً صالحاً ويأخذه دون طلب جديد.
+3. الثالث مثله.
+
+**بدون النظرة الثانية** للوحة سيطلب كل موظف مفتاحاً جديداً، أي 3 طلبات login. **وبدون الشبّاك** (القفل) قد يطلب الثلاثة في اللحظة نفسها.
+
+```kotlin
+@Synchronized                        // the counter: one thread at a time
+fun getValidToken(): String? {
+    val token = storage.token
+    if (token != null && !isExpired())   // second look at the key board
+        return token
+    return refresh()                     // only if still expired
+}
+```
+
+### ج) Race Condition: ماذا لو لم نستخدم قفلاً؟
+| Thread | الخطوات | النتيجة |
+|---|---|---|
+| A | يقرأ الـ token فيجده منتهياً، فيبدأ `login` | يحفظ `tokenA` |
+| B | يقرأ الـ token فيجده منتهياً، فيبدأ `login` | يحفظ `tokenB` |
+| C | يقرأ الـ token فيجده منتهياً، فيبدأ `login` | يحفظ `tokenC` |
+
+النتيجة 3 طلبات login، والـ token المحفوظ في النهاية يعتمد على **أيها انتهى أخيراً**. هذا هو الـ Race Condition الذي يطلب المدير منعه.
+
+### د) لماذا عميلا OkHttp؟ (منع الاستدعاء الذاتي)
+**❌ عميل OkHttp واحد للجميع:**
+
+1. `login()` يمر عبر `AuthInterceptor`.
+2. الـ Interceptor يرى أن الـ token منتهٍ، فيستدعي `refresh()`.
+3. `refresh()` يستدعي `login()`… فنعود للخطوة 1 بلا نهاية ∞ (أو يتجمّد التطبيق على القفل: **deadlock**).
+
+**✅ عميلان منفصلان:**
+```
+ProductApi  ->  okHttpWithAuth   (has AuthInterceptor)
+AuthApi     ->  okHttpPlain      (NO AuthInterceptor)  ->  login goes straight to the server
+```
+
+مع Hilt نميّز بين العميلين بـ **Qualifiers**، أي annotations مخصصة مثل `@AuthClient` و`@PlainClient`، ليعرف Hilt أي نسخة يعطي لكل Retrofit.
+
+### هـ) منع الحلقات اللانهائية (الحدود الثلاثة)
+| الحد | التنفيذ |
+|---|---|
+| login لا يمر بالـ Interceptor | عميل OkHttp منفصل (د) |
+| محاولة تجديد واحدة لكل طلب | `refresh()` يُستدعى مرة واحدة، وإذا فشل يُرمى exception ولا يُعاد |
+| Authenticator (عند 401) يعيد مرة واحدة | `if (response.priorResponse != null) return null`، أي "سبق أن أعدت المحاولة، توقف" |
+
+### و) Force Logout: كيف يصل الحدث من طبقة الشبكة إلى الشاشة؟
+**المشكلة:** `AuthManager` يعمل في طبقة البيانات على thread الـ OkHttp، **ولا يعرف شيئاً عن الشاشات**، لكن يجب أن ينقل المستخدم لشاشة Login.
+
+**الحل:** نمط **Observer** عبر `SharedFlow`:
+
+| # | طبقة البيانات: `AuthManager` | طبقة الواجهة: `MainActivity` |
+|---|---|---|
+| 0 | — | منذ `onCreate` تستمع: `authManager.events.collect { … }` |
+| 1 | التجديد فشل، فيستدعي `clear()` | — |
+| 2 | `_events.tryEmit(ForceLogout)` ⟵ يبث الحدث | — |
+| 3 | — | يصل `ForceLogout` |
+| 4 | — | `navController.navigate(login)` + `popUpTo(inclusive)` + `Toast("Session expired")` |
+
+- **لماذا `SharedFlow` وليس `StateFlow`؟** لأن ForceLogout **حدث لمرة واحدة**. الـ StateFlow يحتفظ بآخر قيمة، فقد يُعاد تنفيذ الحدث عند تدوير الشاشة.
+- نجمعه باستخدام `repeatOnLifecycle(STARTED)` حتى لا يعمل والتطبيق في الخلفية.
+
+### ز) التخزين المشفّر: ماذا يحدث فعلياً؟
+```
+"eyJhb..."  --encrypt (AES key)-->  "A9f$#k2..."  -->  saved to file
+                  ^
+                  |
+        key lives in Android Keystore
+```
+- الـ token يُشفَّر بمفتاح AES قبل حفظه في الملف.
+- المفتاح نفسه محفوظ في **Android Keystore**، داخل شريحة أمان أو منطقة معزولة في الجهاز، ولا يمكن نسخه خارجه.
+
+- حتى لو سُرق ملف التطبيق، فهو مشفّر **ولا يُفك إلا على نفس الجهاز** وبنفس التطبيق.
+- `EncryptedSharedPreferences` يقوم بكل هذا خلف واجهة SharedPreferences العادية.
+
+### ح) كيف يحسب التطبيق انتهاء الـ token؟
+| اللحظة | القيمة |
+|---|---|
+| عند الحفظ | `tokenSavedAt = 1_700_000_000_000` (من `System.currentTimeMillis()`) |
+| عند الطلب | `now = 1_700_000_061_000` |
+| العمر | `now - tokenSavedAt = 61_000ms` |
+| القرار | `61_000 ≥ 60_000`، **إذن منتهٍ** ✅ |
+
+- نجعل الوقت يأتي من interface اسمه `Clock`. في التطبيق يُرجع الوقت الحقيقي، وفي الاختبار نستخدم `FakeClock` نقدّمه 61 ثانية فوراً دون انتظار.
+- **هامش أمان (اختياري):** اعتبر الـ token منتهياً عند 55 ثانية بدل 60، حتى لا ينتهي أثناء سفر الطلب.
+
+### ط) كيف يعمل RecyclerView؟ (إعادة التدوير)
+**تشبيه:** لديك 1000 منتج، والشاشة تتسع لـ 8 فقط. بدل صنع 1000 بطاقة، تصنع **نحو 10 بطاقات**. عند التمرير تخرج البطاقة من أعلى الشاشة، **فتُمسح وتُكتب عليها بيانات منتج جديد** وتدخل من الأسفل.
+
+| الجزء | دوره |
+|---|---|
+| `RecyclerView` | الحاوية التي تدير التمرير وإعادة التدوير |
+| `LayoutManager` | ترتيب العناصر: عمودي (`LinearLayoutManager`) أو شبكي (`GridLayoutManager`) |
+| `ViewHolder` | "البطاقة": يمسك مراجع عناصر الصف (صورة، عنوان، سعر) |
+| `Adapter.onCreateViewHolder` | يصنع بطاقة جديدة، ويُستدعى قليلاً (نحو 10 مرات) |
+| `Adapter.onBindViewHolder` | يكتب بيانات منتج على بطاقة موجودة، ويُستدعى كثيراً عند التمرير |
+| `ListAdapter + DiffUtil` | عند وصول قائمة جديدة يحسب ما تغيّر فقط ويحدّثه مع حركة، بدل إعادة رسم الكل |
+
+### ي) دورة MVVM كاملة في شاشة المنتجات
+| # | ماذا يحدث | الكود |
+|---|---|---|
+| 1 | الشاشة تبدأ الاستماع لحالة الـ ViewModel | `Fragment.onViewCreated` ← `viewModel.state.collect { render(it) }` |
+| 2 | الـ ViewModel يطلب البيانات عند إنشائه | `init` ← `viewModelScope.launch { repository.getProducts() }` |
+| 3 | الحالة Loading، فيظهر `ProgressBar` | `state = Loading` |
+| 4 | الطلب يمر بالـ Interceptor (يجدّد الـ token إن لزم) ثم السيرفر | `Repository` ← `ProductApi` ← `AuthInterceptor` |
+| 5 | **نجاح:** تُعرض القائمة. **فشل:** رسالة خطأ وزر Retry | `adapter.submitList(list)` / `errorText + retryButton` |
+| 6 | عند تدوير الشاشة يُنشأ Fragment جديد مع **نفس** الـ ViewModel، فتظهر البيانات فوراً دون طلب جديد | — |
+

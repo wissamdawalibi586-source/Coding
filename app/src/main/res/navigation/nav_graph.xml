@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Screens and the transitions between them. The real start destination is chosen in
+    MainActivity (login or products, depending on whether a session exists).
+-->
+<navigation xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/nav_graph"
+    app:startDestination="@id/loginFragment">
+
+    <fragment
+        android:id="@+id/loginFragment"
+        android:name="com.example.fakestore.ui.login.LoginFragment"
+        android:label="@string/title_login">
+        <!-- popUpTo login (inclusive): Back from Products must not return to Login. -->
+        <action
+            android:id="@+id/action_login_to_products"
+            app:destination="@id/productsFragment"
+            app:popUpTo="@id/loginFragment"
+            app:popUpToInclusive="true" />
+    </fragment>
+
+    <fragment
+        android:id="@+id/productsFragment"
+        android:name="com.example.fakestore.ui.products.ProductsFragment"
+        android:label="@string/title_products">
+        <action
+            android:id="@+id/action_products_to_detail"
+            app:destination="@id/productDetailFragment" />
+    </fragment>
+
+    <fragment
+        android:id="@+id/productDetailFragment"
+        android:name="com.example.fakestore.ui.detail.ProductDetailFragment"
+        android:label="@string/title_product_detail">
+        <argument
+            android:name="productId"
+            app:argType="integer" />
+    </fragment>
+
+    <!-- Logout from anywhere: clear the whole back stack, then show Login. -->
+    <action
+        android:id="@+id/action_global_login"
+        app:destination="@id/loginFragment"
+        app:popUpTo="@id/nav_graph"
+        app:popUpToInclusive="true" />
+</navigation>

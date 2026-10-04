@@ -1,0 +1,4 @@
+<resources>
+    <!-- ثيم النظام للنافذة فقط؛ ألوان الواجهة الفعلية تأتي من MaterialTheme في Compose -->
+    <style name="Theme.PostsApp" parent="android:Theme.Material.Light.NoActionBar" />
+</resources>

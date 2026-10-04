@@ -1,8 +1,0 @@
-<resources>
-    <string name="app_name">Posts App</string>
-    <string name="posts_title">Posts</string>
-    <string name="post_details_title">Post details</string>
-    <string name="retry">Retry</string>
-    <string name="back">Back</string>
-    <string name="post_author">Author #%1$d</string>
-</resources>

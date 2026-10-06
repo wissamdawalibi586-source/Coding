@@ -28,6 +28,7 @@
     <string name="error_invalid_credentials">Invalid username or password.</string>
     <string name="error_session_expired">Your session has expired. Please log in again.</string>
     <string name="error_server">The server returned an error. Please try again.</string>
+    <string name="error_server_unavailable">The server is unavailable right now. Please try again later.</string>
     <string name="error_network">No internet connection. Check your network and try again.</string>
     <string name="error_unknown">Something went wrong. Please try again.</string>
 </resources>

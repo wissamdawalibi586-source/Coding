@@ -137,6 +137,33 @@ class AuthManagerTest {
     }
 
     @Test
+    fun `server outage during login throws ServerUnavailableException`() = runTest {
+        server.loginResponseCode = 521 // Cloudflare: "web server is down"
+        try {
+            authManager.login("mor_2314", "83r5^_")
+            fail("Expected ServerUnavailableException")
+        } catch (e: ServerUnavailableException) {
+            assertEquals(521, e.httpCode)
+        }
+        assertNull(storage.session)
+    }
+
+    @Test
+    fun `server outage during refresh keeps the session and does not log out`() {
+        storage.session = sessionSavedAt(clock)
+        clock.advanceBy(61_000)
+        server.loginResponseCode = 503
+
+        try {
+            authManager.getValidToken()
+            fail("Expected ServerUnavailableException")
+        } catch (expected: ServerUnavailableException) {
+        }
+        assertNotNull(storage.session)
+        assertEquals(1, server.loginCount.get()) // no retry loop
+    }
+
+    @Test
     fun `no session means SessionExpiredException without network`() {
         try {
             authManager.getValidToken()

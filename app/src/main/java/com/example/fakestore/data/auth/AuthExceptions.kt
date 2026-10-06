@@ -15,3 +15,10 @@ class SessionExpiredException(cause: Throwable? = null) :
 /** The server rejected the username/password (HTTP 4xx from /auth/login). */
 class InvalidCredentialsException(val httpCode: Int) :
     IOException("Invalid username or password (HTTP $httpCode).")
+
+/**
+ * The server answered with an error that is not the user's fault (HTTP 5xx, e.g. the
+ * Cloudflare 52x pages shown when FakeStore is down). The session is kept: retry later.
+ */
+class ServerUnavailableException(val httpCode: Int) :
+    IOException("Server is unavailable (HTTP $httpCode).")

@@ -374,6 +374,8 @@ app/src/test/.../data/auth/         unit tests for the token logic
 
 **`InvalidCredentialsException`:** السيرفر رفض اسم المستخدم أو كلمة المرور، أي رد بكود **4xx** مثل 401. نحتفظ بالكود في `httpCode`.
 
+**`ServerUnavailableException`:** السيرفر نفسه متعطّل، أي رد بكود **5xx**. مثاله صفحات Cloudflare من نوع 52x التي تظهر عندما يتوقف FakeStore. هذا ليس خطأ المستخدم، **فلا نُخرجه**، ونعرض له رسالة "السيرفر غير متاح حالياً، حاول لاحقاً".
+
 **⚠️ لماذا يرثان من `IOException`؟** هذه نقطة تقنية دقيقة ومهمة:
 
 - هذه الأخطاء قد تُرمى **من داخل الـ Interceptor**.
@@ -517,7 +519,7 @@ storage.read()?.takeUnless { it.isExpired() }?.let { return it.token }
 
 - `.execute()`: ينفّذ الطلب **وينتظر** الرد (blocking).
 - **السطر 135:** كود من **400 إلى 499**، أي أن السيرفر رفض البيانات، فنرمي `InvalidCredentialsException`.
-- **السطر 136:** أي فشل آخر (مثل 500، أي عطل في السيرفر) نرمي `IOException` عادياً. ليس ذنب المستخدم، فلا نُخرجه.
+- **السطر 136:** أي فشل آخر (مثل 500 أو 521، أي عطل في السيرفر) نرمي `ServerUnavailableException`. ليس ذنب المستخدم، فلا نُخرجه، وتعرض له الشاشة رسالة "السيرفر غير متاح حالياً".
 - **السطر 139:** نجاح لكن بلا token (رد غريب) نرمي `IOException` أيضاً.
 - **السطر 141:** ننشئ الجلسة مع **`clock.nowMillis()`**، وهذا هو **`tokenSavedAt`**.
 
@@ -708,13 +710,15 @@ expired = age < 0 || age >= 60_000
 {{code:app/src/main/java/com/example/fakestore/ui/common/ErrorMessages.kt}}
 
 ### الشرح
-**الترتيب مهم: من الأكثر تحديداً إلى الأعم.** `InvalidCredentialsException` و`SessionExpiredException` يرثان من `IOException`. لو وضعنا `is IOException` أولاً، لظهرت لهما رسالة "لا يوجد إنترنت" الخاطئة.
+**الترتيب مهم: من الأكثر تحديداً إلى الأعم.** `InvalidCredentialsException` و`SessionExpiredException` و`ServerUnavailableException` كلها ترث من `IOException`. لو وضعنا `is IOException` أولاً، لظهرت لهما رسالة "لا يوجد إنترنت" الخاطئة.
 
 | الخطأ | الرسالة |
 |---|---|
 | `InvalidCredentialsException` | اسم المستخدم أو كلمة المرور خاطئة |
 | `SessionExpiredException` | انتهت الجلسة |
-| `HttpException` (من Retrofit، أي رد بكود خطأ) | خطأ في السيرفر |
+| `ServerUnavailableException` | السيرفر غير متاح حالياً، حاول لاحقاً |
+| `HttpException` بكود **5xx** (من Retrofit) | السيرفر غير متاح حالياً، حاول لاحقاً |
+| `HttpException` بكود آخر | خطأ في السيرفر |
 | `IOException` | لا يوجد إنترنت |
 | أي شيء آخر | حدث خطأ ما |
 
@@ -1115,7 +1119,7 @@ getString(R.string.product_rating, rating, count)  →  "★ 4.1 (259 reviews)"
 **مكان الاختبارات:** المجلد `app/src/test/`. تعمل على الكمبيوتر مباشرة (**JVM**)، بلا هاتف أو محاكي.
 **طريقة التشغيل:** الأمر `./gradlew test`، أو بزر ▶️ بجانب أي اختبار في Android Studio.
 
-**النتيجة:** **15 اختباراً، كلها ناجحة**.
+**النتيجة:** **17 اختباراً، كلها ناجحة**.
 
 - شُغّلت 5 مرات متتالية للتأكد من أن اختبارات التزامن ثابتة وغير عشوائية.
 - **وأُثبت أنها تكشف الخطأ فعلاً:** عند حذف التحقق الثاني داخل القفل، فشل اختباران:
@@ -1161,6 +1165,8 @@ getString(R.string.product_rating, rating, count)  →  "★ 4.1 (259 reviews)"
 | ★ `concurrent callers … exactly one refresh` | **10 threads معاً** تنتج **login واحداً**، وكلها تحصل على نفس الـ token |
 | `rejected refresh forces logout…` | رفض التجديد يعني مسح الجلسة، وإرسال الحدث، و**محاولة واحدة فقط** |
 | `network failure during refresh keeps the session` | انقطاع الإنترنت لا يُخرج المستخدم |
+| `server outage during login…` | تعطّل السيرفر (521) أثناء الدخول يعطي `ServerUnavailableException`، لا "كلمة مرور خاطئة" |
+| `server outage during refresh keeps the session…` | تعطّل السيرفر (503) أثناء التجديد لا يُخرج المستخدم، ومحاولة واحدة فقط |
 | `no session means SessionExpiredException…` | بلا جلسة: خطأ دون أي طلب |
 | `logout during a refresh…` | Logout أثناء التجديد لا يعيد الجلسة |
 
@@ -1251,7 +1257,7 @@ getString(R.string.product_rating, rating, count)  →  "★ 4.1 (259 reviews)"
    - ثم 5 طلبات `GET /products/1..5`.
 5. اختر **Log out**: تعود لشاشة Login، وزر الرجوع يغلق التطبيق.
 6. افصل الإنترنت ثم اختر **Refresh**: رسالة "No internet connection" مع زر Retry، ولا يحدث crash.
-7. شغّل الاختبارات بـ `./gradlew test`، واعرض نتيجة الـ 15 اختباراً.
+7. شغّل الاختبارات بـ `./gradlew test`، واعرض نتيجة الـ 17 اختباراً.
 
 ## 56. تقابل المتطلبات مع الكود
 | المتطلب في ملف المهمة | الملف | الكود |

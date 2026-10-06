@@ -3,6 +3,7 @@ package com.example.fakestore.ui.common
 import androidx.annotation.StringRes
 import com.example.fakestore.R
 import com.example.fakestore.data.auth.InvalidCredentialsException
+import com.example.fakestore.data.auth.ServerUnavailableException
 import com.example.fakestore.data.auth.SessionExpiredException
 import retrofit2.HttpException
 import java.io.IOException
@@ -12,7 +13,8 @@ import java.io.IOException
 fun Throwable.toMessageRes(): Int = when (this) {
     is InvalidCredentialsException -> R.string.error_invalid_credentials
     is SessionExpiredException -> R.string.error_session_expired
-    is HttpException -> R.string.error_server
+    is ServerUnavailableException -> R.string.error_server_unavailable
+    is HttpException -> if (code() >= 500) R.string.error_server_unavailable else R.string.error_server
     is IOException -> R.string.error_network
     else -> R.string.error_unknown
 }

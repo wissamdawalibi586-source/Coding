@@ -133,7 +133,7 @@ class AuthManager @Inject constructor(
             .execute()
 
         if (response.code() in 400..499) throw InvalidCredentialsException(response.code())
-        if (!response.isSuccessful) throw IOException("Login failed with HTTP ${response.code()}")
+        if (!response.isSuccessful) throw ServerUnavailableException(response.code())
 
         val token = response.body()?.token
         if (token.isNullOrBlank()) throw IOException("Login response did not contain a token")

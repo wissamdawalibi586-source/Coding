@@ -58,9 +58,10 @@ ProductRepository ──► ProductApi ──► [AuthClient: AuthInterceptor �
 ## Design decisions
 
 * **Refresh failure policy.** If the server *rejects* the credentials (HTTP 4xx) the session is
-  wiped and the user is sent to Login. If the refresh fails because of the *network*, the
-  session is kept and the request fails with a "no internet" error, so a flaky connection
-  does not log the user out. Each request attempts at most one refresh, so there is no loop.
+  wiped and the user is sent to Login. If the refresh fails because of the *network* or a
+  *server outage* (HTTP 5xx, e.g. Cloudflare 52x when FakeStore is down), the session is kept
+  and the user sees "no internet" or "server unavailable", so a temporary problem does not log
+  the user out. Each request attempts at most one refresh, so there is no loop.
 * **Stored credentials.** Simulating refresh requires re-sending the username and password, so
   they are stored encrypted next to the token. A production app would store a server-issued
   refresh token instead and never persist the password.
@@ -94,7 +95,8 @@ Filter Logcat by `okhttp.OkHttpClient`:
 `app/src/test/.../data/auth` — JVM tests using `MockWebServer`, a `FakeClock` and in-memory storage:
 
 * `AuthManagerTest` — expiry at exactly 60 s, clock going backwards, refresh, **10 threads → 1 login**,
-  rejected refresh → logout + event, network failure keeps the session, logout during refresh.
+  rejected refresh → logout + event, network failure or server outage (5xx) keeps the session,
+  logout during refresh.
 * `AuthInterceptorTest` — every request carries `Bearer`, expired token refreshed *before*
   sending, **5 parallel Retrofit calls → 1 login**, no session → request never sent.
 * `TokenAuthenticatorTest` — server keeps returning 401 → exactly one retry, then logout.

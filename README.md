@@ -74,6 +74,20 @@ ProductRepository ──► ProductApi ──► [AuthClient: AuthInterceptor �
 * **Logging.** `HttpLoggingInterceptor` at `BASIC` level in debug builds only, with the
   `Authorization` header redacted; bodies (which contain the password) are never logged.
 
+## Mock backend (development only)
+
+While fakestoreapi.com was down (Cloudflare "Host Error" for everyone), a built-in mock
+server was added so the app can still be run and demonstrated:
+
+* `data/mock/MockBackendInterceptor` is the **last** OkHttp interceptor. It answers
+  `/auth/login` and `/products[/id]` in FakeStore's JSON format instead of calling the network.
+* Everything before it is unchanged: `AuthInterceptor`, 60 s expiry, the refresh lock,
+  forced logout. Only the remote end is replaced. The mock even enforces the bearer token.
+* Login waits 800 ms so concurrent requests really do queue behind a single refresh.
+* Switch: `fakestore.useMockBackend=true|false` in `gradle.properties`. It only affects debug
+  builds (`BuildConfig.USE_MOCK_BACKEND`); release builds always use the real API.
+  The login screen shows a "Demo mode" banner while it is on.
+
 ## Running
 
 1. Open the project in Android Studio (Koala or newer) and let Gradle sync.
@@ -100,3 +114,5 @@ Filter Logcat by `okhttp.OkHttpClient`:
 * `AuthInterceptorTest` — every request carries `Bearer`, expired token refreshed *before*
   sending, **5 parallel Retrofit calls → 1 login**, no session → request never sent.
 * `TokenAuthenticatorTest` — server keeps returning 401 → exactly one retry, then logout.
+* `MockBackendInterceptorTest` — the full stack on the mock server: login, products, wrong
+  password, 404, and **5 parallel requests after expiry → 1 refresh**.

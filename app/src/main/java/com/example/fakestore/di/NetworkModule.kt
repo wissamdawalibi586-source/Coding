@@ -4,6 +4,7 @@ import com.example.fakestore.BuildConfig
 import com.example.fakestore.data.auth.AuthHeaders
 import com.example.fakestore.data.auth.AuthInterceptor
 import com.example.fakestore.data.auth.TokenAuthenticator
+import com.example.fakestore.data.mock.MockBackendInterceptor
 import com.example.fakestore.data.remote.ApiConfig
 import com.example.fakestore.data.remote.AuthApi
 import com.example.fakestore.data.remote.ProductApi
@@ -23,6 +24,14 @@ import javax.inject.Singleton
 object NetworkModule {
 
     private const val TIMEOUT_SECONDS = 20L
+
+    /**
+     * Dev-only fake server, shared by both clients. Null in normal builds: requests then
+     * go to the real fakestoreapi.com. (Kept out of the Hilt graph on purpose: it is a
+     * build-time switch, not a dependency anyone else needs.)
+     */
+    private val mockBackend: MockBackendInterceptor? =
+        if (BuildConfig.USE_MOCK_BACKEND) MockBackendInterceptor() else null
 
     @Provides
     @Singleton
@@ -44,6 +53,7 @@ object NetworkModule {
     fun providePlainClient(logging: HttpLoggingInterceptor): OkHttpClient =
         baseClientBuilder()
             .addInterceptor(logging)
+            .addMockBackend(mockBackend)
             .build()
 
     @Provides
@@ -57,6 +67,7 @@ object NetworkModule {
         baseClientBuilder()
             .addInterceptor(authInterceptor) // first: attach a valid token
             .addInterceptor(logging)         // then: log the final request
+            .addMockBackend(mockBackend)     // last (dev only): answer instead of the server
             .authenticator(tokenAuthenticator)
             .build()
 
@@ -74,6 +85,10 @@ object NetworkModule {
         OkHttpClient.Builder()
             .connectTimeout(TIMEOUT_SECONDS, TimeUnit.SECONDS)
             .readTimeout(TIMEOUT_SECONDS, TimeUnit.SECONDS)
+
+    /** The mock must stay last: it answers the request instead of passing it on. */
+    private fun OkHttpClient.Builder.addMockBackend(mock: MockBackendInterceptor?) =
+        apply { if (mock != null) addInterceptor(mock) }
 
     private fun buildRetrofit(client: OkHttpClient): Retrofit =
         Retrofit.Builder()

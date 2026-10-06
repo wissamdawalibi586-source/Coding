@@ -141,6 +141,12 @@ app/src/test/.../data/auth/         unit tests for the token logic
 - `viewBinding = true`: يولّد لكل ملف XML كلاساً يحمل مراجع عناصره، مثلاً `fragment_login.xml` ← `FragmentLoginBinding`. هذا يغني عن `findViewById` ويمنع أخطاء الأنواع والقيم الفارغة.
 - `buildConfig = true`: يولّد كلاس `BuildConfig`. نستخدم منه `BuildConfig.DEBUG` لتفعيل سجل الشبكة في نسخة التطوير فقط.
 
+**مفتاح السيرفر الوهمي (`useMockBackend`):**
+
+- السطر `providers.gradleProperty("fakestore.useMockBackend")` يقرأ القيمة من `gradle.properties`.
+- `buildConfigField(...)` يحوّلها إلى ثابت في الكود اسمه `BuildConfig.USE_MOCK_BACKEND`.
+- في `debug` يأخذ قيمة المفتاح. وفي `release` يكون **دائماً `false`**، فلا يمكن أن تصل نسخة الإنتاج إلى السيرفر الوهمي بالخطأ.
+
 **أنواع الاعتماديات (`dependencies`):**
 
 | النوع | متى يُستخدم |
@@ -160,6 +166,7 @@ app/src/test/.../data/auth/         unit tests for the token logic
 | `org.gradle.jvmargs` | ذاكرة Gradle أثناء البناء |
 | `android.useAndroidX` | استخدام مكتبات AndroidX الحديثة |
 | `android.nonTransitiveRClass` | كل وحدة ترى موارد `R` الخاصة بها فقط، فيكون البناء أسرع |
+| `fakestore.useMockBackend` | **مفتاح الوضع التجريبي.** `true` يعني أن نسخة التطوير تستخدم السيرفر الوهمي بدل FakeStore. اجعله `false` عندما يعود FakeStore للعمل. انظر الجزء التاسع |
 
 ## 6. `app/src/main/AndroidManifest.xml`
 **الدور:** بطاقة هوية التطبيق: الصلاحيات، والشاشات، والإعدادات العامة.
@@ -665,6 +672,13 @@ expired = age < 0 || age >= 60_000
 - `baseClientBuilder`: الإعدادات المشتركة، أي مهلة 20 ثانية (**timeout**) للاتصال والقراءة.
 - `buildRetrofit`: ينشئ Retrofit بالعنوان الأساسي ومحوّل Gson.
 
+**`mockBackend` و`addMockBackend` (للتطوير فقط):**
+
+- إذا كان `BuildConfig.USE_MOCK_BACKEND` يساوي `true`، يُنشأ `MockBackendInterceptor` واحد يشترك فيه العميلان.
+- `addMockBackend` يضيفه **في آخر السلسلة**، بعد `AuthInterceptor` وسجل الطلبات، فكل شيء قبله يعمل كما في الإنتاج.
+- إذا كان `false` يكون `null`، ولا يُضاف شيء، فتذهب الطلبات إلى FakeStore الحقيقي.
+- لم نضعه في Hilt عن قصد، لأنه مفتاح وقت البناء، وليس اعتمادية يحتاجها كلاس آخر.
+
 > **خلاصة هذا الملف:** هنا تحديداً نمنع **الحلقة اللانهائية**. طلب login لا يمر أبداً بالـ `AuthInterceptor`.
 
 ## 27. `di/DataModule.kt`
@@ -904,6 +918,7 @@ collectWhenStarted(viewModel.state) { render(it) }
 - `autofillHints`: يسمح لمدير كلمات المرور بملء الحقول.
 - `error_text`: رسالة الخطأ، مخفية (`gone`) حتى يحدث خطأ. `?attr/colorError` يجعل لونها أحمر من الثيم.
 - `CircularProgressIndicator`: دائرة التحميل، مخفية في البداية.
+- `mock_backend_banner`: شريط ملوّن في أعلى الشاشة يقول إن التطبيق في **الوضع التجريبي**. مخفي إلا إذا كان السيرفر الوهمي مفعّلاً، حتى لا يظن أحد أن البيانات حقيقية.
 
 ## 39. `ui/login/LoginFragment.kt`
 **الدور:** شاشة تسجيل الدخول (الـ View).
@@ -922,6 +937,7 @@ collectWhenStarted(viewModel.state) { render(it) }
 
 **`onViewCreated`:**
 
+- `mockBackendBanner.isVisible = BuildConfig.USE_MOCK_BACKEND`: يُظهر شريط الوضع التجريبي فقط عند تفعيله.
 - ربط الزر وزر Done في لوحة المفاتيح بالدالة `submit()`.
 - `collectWhenStarted(viewModel.state) { render(it) }`: كلما تغيّرت الحالة تُرسم الشاشة من جديد.
 
@@ -1119,7 +1135,7 @@ getString(R.string.product_rating, rating, count)  →  "★ 4.1 (259 reviews)"
 **مكان الاختبارات:** المجلد `app/src/test/`. تعمل على الكمبيوتر مباشرة (**JVM**)، بلا هاتف أو محاكي.
 **طريقة التشغيل:** الأمر `./gradlew test`، أو بزر ▶️ بجانب أي اختبار في Android Studio.
 
-**النتيجة:** **17 اختباراً، كلها ناجحة**.
+**النتيجة:** **21 اختباراً، كلها ناجحة**.
 
 - شُغّلت 5 مرات متتالية للتأكد من أن اختبارات التزامن ثابتة وغير عشوائية.
 - **وأُثبت أنها تكشف الخطأ فعلاً:** عند حذف التحقق الثاني داخل القفل، فشل اختباران:
@@ -1257,7 +1273,7 @@ getString(R.string.product_rating, rating, count)  →  "★ 4.1 (259 reviews)"
    - ثم 5 طلبات `GET /products/1..5`.
 5. اختر **Log out**: تعود لشاشة Login، وزر الرجوع يغلق التطبيق.
 6. افصل الإنترنت ثم اختر **Refresh**: رسالة "No internet connection" مع زر Retry، ولا يحدث crash.
-7. شغّل الاختبارات بـ `./gradlew test`، واعرض نتيجة الـ 17 اختباراً.
+7. شغّل الاختبارات بـ `./gradlew test`، واعرض نتيجة الـ 21 اختباراً.
 
 ## 56. تقابل المتطلبات مع الكود
 | المتطلب في ملف المهمة | الملف | الكود |
@@ -1282,3 +1298,95 @@ getString(R.string.product_rating, rating, count)  →  "★ 4.1 (259 reviews)"
 | Logout: clear token, go to Login | `ProductsViewModel` / `nav_graph.xml` | `logout()` + `action_global_login` |
 | Architecture: MVVM | كل الشاشات | Fragment + ViewModel + Repository |
 | Networking: Retrofit + OkHttp | `NetworkModule` | |
+
+---
+
+## الجزء التاسع: الوضع التجريبي (Mock Backend)
+
+**لماذا أضفناه؟** أثناء العمل تعطّل سيرفر FakeStore **للجميع**، وكانت Cloudflare تعرض الخطأ `Host Error`. بدون سيرفر لا يمكن اختبار تسجيل الدخول ولا المنتجات ولا منطق الـ Token على الهاتف.
+
+**الحل الاحترافي:** سيرفر وهمي **داخل التطبيق**، لنسخة التطوير فقط. هذا ما تفعله الفرق عادةً حتى لا يتوقف عملها بسبب خدمة خارجية.
+
+**المبدأ الأهم:** السيرفر الوهمي يستبدل **الطرف البعيد فقط**. كل شيء آخر يعمل كما هو في الإنتاج:
+
+| الجزء | مع السيرفر الوهمي |
+|---|---|
+| `AuthInterceptor` وإضافة `Bearer` | يعمل كما هو |
+| انتهاء الـ Token بعد 60 ثانية | يعمل كما هو |
+| القفل والتجديد الواحد | يعمل كما هو |
+| الخروج الإجباري ورسائل الخطأ | تعمل كما هي |
+| **الرد على الطلب** | **من داخل الهاتف بدل fakestoreapi.com** |
+
+**التفعيل والإيقاف:** سطر واحد في `gradle.properties`:
+```
+fakestore.useMockBackend=true
+```
+بعد تغييره اضغط **Sync Now**، ثم شغّل التطبيق من جديد.
+
+## 57. `data/mock/MockProducts.kt`
+**الدور:** بيانات المنتجات التي يردّ بها السيرفر الوهمي.
+
+{{code:app/src/main/java/com/example/fakestore/data/mock/MockProducts.kt}}
+
+### الشرح
+- `internal object`: كائن وحيد، ومرئي داخل الوحدة `app` فقط.
+- `items`: عشرة منتجات بنفس أسماء وأسعار وتصنيفات FakeStore الحقيقية تقريباً.
+- `listJson()` و`productJson(id)`: تبني **نص JSON بنفس شكل رد FakeStore بالضبط**، فيحوّله Gson إلى `ProductDto` دون أي تغيير في باقي الكود.
+- **الصور من `picsum.photos`:** لأن صور FakeStore موجودة على نفس السيرفر المتعطّل.
+- `quote()`: تضع النص بين علامتي تنصيص، وتهرّب الرموز الخاصة، حتى يبقى JSON صحيحاً.
+
+## 58. ★ `data/mock/MockBackendInterceptor.kt`
+**الدور:** السيرفر الوهمي نفسه.
+
+{{code:app/src/main/java/com/example/fakestore/data/mock/MockBackendInterceptor.kt}}
+
+### الشرح
+**كيف "يردّ" Interceptor بدل السيرفر؟** أي Interceptor عادي يستدعي `chain.proceed(request)` ليمرّر الطلب إلى الأمام. هذا الكلاس **لا يستدعيها أبداً**، بل يبني بنفسه `Response` كاملاً، بكود وجسم JSON، ويعيده. فيظن OkHttp وRetrofit أن الرد جاء من الإنترنت.
+
+**`intercept()`:** يقرأ الطريقة (`GET`/`POST`) والمسار، ويوجّه الطلب:
+
+| الطلب | الدالة |
+|---|---|
+| `POST /auth/login` | `login()` |
+| `GET /products` أو `GET /products/{id}` | `products()` |
+| أي شيء آخر | 404 |
+
+**`login()`:**
+
+- `loginCount.incrementAndGet()`: يعدّ طلبات الدخول. تستخدمه الاختبارات لإثبات حدوث **تجديد واحد فقط**.
+- `Thread.sleep(loginDelayMillis)`: **تأخير مقصود** (800 ميلي ثانية). بدونه يكون الرد فورياً، فلا تجتمع الطلبات المتزامنة عند القفل، ويصبح اختبار التزامن بلا معنى.
+- يقرأ جسم الطلب، ويحوّله بـ Gson إلى `LoginRequest`:
+    - بيانات صحيحة: `200` مع `{"token":"mock-token-N"}`، فكل تجديد يعطي token برقم جديد.
+    - بيانات خاطئة: `401`، تماماً مثل FakeStore.
+
+**`products()`:**
+
+- **يتحقق من وجود `Bearer` token فعلاً.** إذا غاب يرد `401`. هذا أكثر صرامة من FakeStore الحقيقي، الذي لا يتحقق أصلاً.
+- `/products`: يرجع القائمة كاملة.
+- `/products/{id}`: يرجع المنتج، أو `404` إذا لم يوجد.
+
+**`Response.Builder()`:** يبني الرد: الطلب الأصلي، والبروتوكول، والكود، والرسالة، والجسم بنوع `application/json`.
+
+## 59. `test/.../MockBackendInterceptorTest.kt`
+**الدور:** إثبات أن التطبيق كله يعمل فوق السيرفر الوهمي.
+
+{{code:app/src/test/java/com/example/fakestore/data/mock/MockBackendInterceptorTest.kt}}
+
+### الشرح
+يبني الاختبار العميلين **بنفس ترتيب `NetworkModule`**: `AuthInterceptor`، ثم السيرفر الوهمي في الآخر.
+
+| الاختبار | ماذا يثبت |
+|---|---|
+| `login and products work end to end` | الدخول ثم القائمة (10 منتجات) ثم منتج واحد |
+| `wrong password is rejected` | كلمة مرور خاطئة تعطي `401` و`InvalidCredentialsException` |
+| ★ `expired token with parallel requests…` | بعد 61 ثانية: 5 طلبات متزامنة تنتج **login واحداً إضافياً فقط** (`loginCount == 2`: الدخول الأول + تجديد واحد) |
+| `unknown product returns 404` | منتج غير موجود يعطي `404` |
+
+## 60. كيف تعرض الوضع التجريبي للمدير
+1. افتح التطبيق: سيظهر الشريط الملوّن أعلى شاشة الدخول:
+    ```
+    Demo mode: using a built-in mock server instead of fakestoreapi.com
+    ```
+2. قل للمدير بوضوح: "سيرفر FakeStore تعطّل للجميع أثناء العمل، فأضفت سيرفراً وهمياً لنسخة التطوير فقط، يستبدل الطرف البعيد ويُبقي منطق الـ Token حقيقياً. نسخة الإنتاج تستخدم FakeStore دائماً."
+3. اعرض الخطوات نفسها من القسم 55. في Logcat ستظهر الطلبات كأنها ذهبت إلى `fakestoreapi.com`، لكن الرد يأتي من داخل الهاتف.
+4. عندما يعود FakeStore: غيّر المفتاح إلى `false`، واضغط **Sync Now**، فيختفي الشريط ويعود التطبيق للسيرفر الحقيقي.

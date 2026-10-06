@@ -7,6 +7,7 @@ import androidx.core.view.isVisible
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.viewModels
 import androidx.navigation.fragment.findNavController
+import com.example.fakestore.BuildConfig
 import com.example.fakestore.R
 import com.example.fakestore.databinding.FragmentLoginBinding
 import com.example.fakestore.ui.common.collectWhenStarted
@@ -23,6 +24,7 @@ class LoginFragment : Fragment(R.layout.fragment_login) {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
         _binding = FragmentLoginBinding.bind(view)
+        binding.mockBackendBanner.isVisible = BuildConfig.USE_MOCK_BACKEND
 
         binding.loginButton.setOnClickListener { submit() }
         binding.passwordInput.setOnEditorActionListener { _, actionId, _ ->

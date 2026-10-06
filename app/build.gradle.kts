@@ -5,6 +5,10 @@ plugins {
     alias(libs.plugins.hilt)
 }
 
+// Dev switch (gradle.properties): answer API calls with a built-in mock server.
+// Only debug builds can use it; release builds always talk to the real FakeStore.
+val useMockBackend = providers.gradleProperty("fakestore.useMockBackend").orNull.toBoolean()
+
 android {
     namespace = "com.example.fakestore"
     compileSdk = 34
@@ -18,7 +22,11 @@ android {
     }
 
     buildTypes {
+        debug {
+            buildConfigField("boolean", "USE_MOCK_BACKEND", useMockBackend.toString())
+        }
         release {
+            buildConfigField("boolean", "USE_MOCK_BACKEND", "false")
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),

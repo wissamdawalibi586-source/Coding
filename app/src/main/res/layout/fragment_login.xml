@@ -12,6 +12,18 @@
         android:orientation="vertical"
         android:padding="24dp">
 
+        <!-- Shown only when the dev mock server is enabled (see gradle.properties). -->
+        <TextView
+            android:id="@+id/mock_backend_banner"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="16dp"
+            android:background="?attr/colorTertiaryContainer"
+            android:padding="12dp"
+            android:text="@string/mock_backend_banner"
+            android:textColor="?attr/colorOnTertiaryContainer"
+            android:visibility="gone" />
+
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"

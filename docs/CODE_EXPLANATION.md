@@ -23,6 +23,7 @@ app/src/main/java/com/example/fakestore/
 │   ├── model/Product.kt            domain model
 │   ├── remote/                     Retrofit APIs + DTOs
 │   ├── auth/                       ★ token logic (core of the task)
+│   ├── mock/                       dev-only mock server (FakeStore outage)
 │   └── repository/                 ProductRepository
 ├── di/                             Hilt modules
 └── ui/
@@ -32,6 +33,7 @@ app/src/main/java/com/example/fakestore/
     └── detail/                     product details
 app/src/main/res/                   layouts, navigation, menu, strings
 app/src/test/.../data/auth/         unit tests for the token logic
+app/src/test/.../data/mock/         tests on the mock server
 ```
 
 ### ترتيب القراءة المقترح
@@ -47,8 +49,20 @@ app/src/test/.../data/auth/         unit tests for the token logic
 | السادس | الشاشات |
 | السابع | الاختبارات |
 | الثامن | الرحلة الكاملة للطلب، وكيف تعرض المشروع للمدير |
+| التاسع | الوضع التجريبي (السيرفر الوهمي) أثناء تعطّل FakeStore |
 
 > **ملاحظة:** أرقام الأسطر الظاهرة بجانب الكود تساعدك على متابعة الشرح.
+
+### سجل التعديلات
+المشروع مرّ بثلاث مراحل، وكلها مشروحة في هذا الملف:
+
+| المرحلة | ماذا أُضيف | لماذا | الأقسام |
+|---|---|---|---|
+| 1. التنفيذ الأساسي | كل متطلبات المهمة: الدخول، والتخزين المشفّر، والـ Interceptor، والانتهاء بعد 60 ثانية، والتجديد الواحد، والخروج الإجباري، والقائمة، والتفاصيل، والخروج + 15 اختباراً | ملف المهمة | 1 إلى 56 |
+| 2. رسالة "السيرفر غير متاح" | نوع خطأ جديد `ServerUnavailableException`، ورسالة دقيقة عند أعطال السيرفر (5xx)، واختباران | FakeStore تعطّل، والتطبيق كان يقول "لا يوجد إنترنت"، وهذا غير دقيق | 17، 20، 29، 51 |
+| 3. الوضع التجريبي | سيرفر وهمي لنسخة التطوير فقط، يُفعَّل من `gradle.properties`، وشريط تنبيه في شاشة الدخول، و4 اختبارات | FakeStore بقي متعطّلاً للجميع، فلم يكن ممكناً تشغيل التطبيق أو عرضه | 4، 5، 26، 38، 39، الجزء التاسع |
+
+**المجموع الحالي:** 56 ملفاً مشروحاً، و**21 اختباراً ناجحاً**.
 
 ---
 
@@ -1298,6 +1312,8 @@ getString(R.string.product_rating, rating, count)  →  "★ 4.1 (259 reviews)"
 | Logout: clear token, go to Login | `ProductsViewModel` / `nav_graph.xml` | `logout()` + `action_global_login` |
 | Architecture: MVVM | كل الشاشات | Fragment + ViewModel + Repository |
 | Networking: Retrofit + OkHttp | `NetworkModule` | |
+| (إضافة) رسالة دقيقة عند تعطّل السيرفر | `AuthExceptions` / `ErrorMessages` | `ServerUnavailableException` → "The server is unavailable right now" |
+| (إضافة) تشغيل التطبيق رغم تعطّل FakeStore | `MockBackendInterceptor` / `gradle.properties` | `fakestore.useMockBackend=true` (نسخة التطوير فقط) |
 
 ---
 

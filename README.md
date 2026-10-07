@@ -87,6 +87,10 @@ server was added so the app can still be run and demonstrated:
 * Switch: `fakestore.useMockBackend=true|false` in `gradle.properties`. It only affects debug
   builds (`BuildConfig.USE_MOCK_BACKEND`); release builds always use the real API.
   The login screen shows a "Demo mode" banner while it is on.
+* Limits: the mock never rejects stored credentials and never goes offline, so forced logout,
+  "no internet" and "server unavailable" cannot be triggered on a device in demo mode. Its
+  replies also come from an application interceptor, which OkHttp does not pass to the
+  `Authenticator`. These paths are covered by the unit tests instead.
 
 ## Running
 

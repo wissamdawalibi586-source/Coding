@@ -11,6 +11,9 @@ import javax.inject.Singleton
 /**
  * [TokenStorage] backed by EncryptedSharedPreferences: keys and values are encrypted
  * with AES-256, and the master key lives in the Android Keystore, so it never leaves the device.
+ *
+ * read/save/clear are @Synchronized: a session is four separate keys, and without the
+ * lock a reader could see a half-written session (e.g. the old token with the new tokenSavedAt).
  */
 @Singleton
 class EncryptedTokenStorage @Inject constructor(
@@ -31,6 +34,7 @@ class EncryptedTokenStorage @Inject constructor(
         )
     }
 
+    @Synchronized
     override fun read(): AuthSession? {
         val token = prefs.getString(KEY_TOKEN, null) ?: return null
         val username = prefs.getString(KEY_USERNAME, null) ?: return null
@@ -39,6 +43,7 @@ class EncryptedTokenStorage @Inject constructor(
         return AuthSession(token, savedAt, Credentials(username, password))
     }
 
+    @Synchronized
     override fun save(session: AuthSession) {
         // commit() writes synchronously; we are always on a background thread here.
         prefs.edit()
@@ -49,6 +54,7 @@ class EncryptedTokenStorage @Inject constructor(
             .commit()
     }
 
+    @Synchronized
     override fun clear() {
         prefs.edit().clear().commit()
     }

@@ -38,6 +38,10 @@
             android:text="@string/login_subtitle"
             android:textAppearance="?attr/textAppearanceBodyMedium" />
 
+        <!--
+            Usernames are case-sensitive: textVisiblePassword stops the keyboard from
+            capitalizing the first letter or auto-correcting it (mor_2314 -> Mor_2314).
+        -->
         <com.google.android.material.textfield.TextInputLayout
             android:id="@+id/username_layout"
             style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
@@ -51,7 +55,7 @@
                 android:layout_height="wrap_content"
                 android:autofillHints="username"
                 android:imeOptions="actionNext"
-                android:inputType="text"
+                android:inputType="textVisiblePassword|textNoSuggestions"
                 android:maxLines="1" />
         </com.google.android.material.textfield.TextInputLayout>
 
